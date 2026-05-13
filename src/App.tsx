@@ -145,22 +145,25 @@ export default function App() {
   const fetchImages = async () => {
     try {
       const response = await fetch('/api/images');
-      if (!response.ok) {
-        throw new Error(`Servidor retornou ${response.status}`);
-      }
       const data = await response.json();
       
-      if (data.error) {
+      if (!response.ok) {
+        console.error("[App] API Error detail:", data);
+        setError(data.error || `Erro ${response.status}: ${data.message || 'Falha na API'}`);
+        setImages(INITIAL_IMAGES);
+      } else if (data.error) {
         setError(data.error);
         setImages(INITIAL_IMAGES);
       } else if (data.images && data.images.length > 0) {
         setImages(data.images);
+        setError(null);
       } else {
         setImages(INITIAL_IMAGES);
+        setError(null);
       }
-    } catch (err) {
-      console.error("[App] Failed to fetch images", err);
-      setError("Não foi possível carregar as imagens do R2.");
+    } catch (err: any) {
+      console.error("[App] Network or Parse error", err);
+      setError("Erro de rede ao conectar com o servidor.");
       setImages(INITIAL_IMAGES);
     } finally {
       setLoading(false);

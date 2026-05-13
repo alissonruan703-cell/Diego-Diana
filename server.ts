@@ -28,6 +28,7 @@ function getS3Client() {
     s3Client = new S3Client({
       region: "auto",
       endpoint: endpoint,
+      forcePathStyle: true,
       credentials: {
         accessKeyId: accessKey,
         secretAccessKey: secretKey,
@@ -133,23 +134,28 @@ app.get("/api/images", async (req, res) => {
     }
 
     if (images.length === 0) {
-      console.log("[SERVER] Still no images found listing first 10 keys for debug:");
+      console.log("[SERVER] No images found with prefixes. Bucket name:", bucketName);
       try {
         const debugCommand = new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 10 });
         const debugResponse = await client.send(debugCommand);
-        console.log("[SERVER] Debug list:", debugResponse.Contents?.map(c => c.Key) || "Empty bucket");
+        console.log("[SERVER] Debug list success. Keys found:", debugResponse.Contents?.length || 0);
       } catch (e: any) {
-        console.error("[SERVER] Debug list failed:", e?.message);
+        console.error("[SERVER] Debug listing failed:", e?.message);
       }
     }
 
     return res.json({ images });
   } catch (error: any) {
-    console.error("[SERVER] Fatal error listing R2 objects:", error);
+    console.error("[SERVER] ERROR IN /api/images:", error);
     return res.status(500).json({ 
-      error: "Falha crítica ao buscar imagens do R2",
-      details: error?.message || String(error),
-      code: error?.$metadata?.httpStatusCode || 500
+      error: "Falha ao carregar imagens do R2",
+      message: error?.message || "Erro desconhecido",
+      stack: process.env.NODE_ENV !== 'production' ? error?.stack : undefined,
+      r2_config: {
+        has_bucket: !!process.env.R2_BUCKET_NAME,
+        has_endpoint: !!(process.env.R2_ENDPOINT || process.env.R2_ACCOUNT_ID),
+        bucket: process.env.R2_BUCKET_NAME
+      }
     });
   }
 });
