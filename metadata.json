@@ -1,0 +1,8 @@
+{
+  "name": "Bodas de Rosa - 17 Anos",
+  "description": "Uma celebração especial de 17 anos juntos (Diego & Diana), com galeria de fotos e mensagem de amor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
