@@ -9,6 +9,14 @@ dotenv.config();
 import { S3Client, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import multer from "multer";
 
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[FATAL] Uncaught Exception:', error);
+});
+
 let s3Client: S3Client | null = null;
 
 function getS3Client() {
@@ -24,31 +32,62 @@ function getS3Client() {
   }
 
   if (accessKey && secretKey && endpoint) {
-    console.log("[SERVER] Initializing R2 S3 Client with endpoint:", endpoint);
-    s3Client = new S3Client({
-      region: "auto",
-      endpoint: endpoint,
-      forcePathStyle: true,
-      credentials: {
-        accessKeyId: accessKey,
-        secretAccessKey: secretKey,
-      },
-    });
-    return s3Client;
+    console.log("[SERVER] Initializing R2 Client. Endpoint:", endpoint);
+    try {
+      s3Client = new S3Client({
+        region: "auto",
+        endpoint: endpoint,
+        credentials: {
+          accessKeyId: accessKey,
+          secretAccessKey: secretKey,
+        },
+        // R2 generally works better with Virtual Hosted Style (default)
+      });
+      return s3Client;
+    } catch (err) {
+      console.error("[SERVER] Failed to create S3Client instance:", err);
+      return null;
+    }
   }
   
   return null;
 }
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 const app = express();
 
 app.use(express.json());
 
+// Global Error Handler for Express
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("[SERVER ERROR]", err);
+  res.status(500).json({ 
+    error: "Erro interno do servidor", 
+    message: err?.message,
+    stack: process.env.NODE_ENV !== "production" ? err?.stack : undefined
+  });
+});
+
 app.use((req, res, next) => {
   console.log(`[SERVER] ${req.method} ${req.url}`);
   next();
+});
+
+// Endpoint de diagnóstico rápido
+app.get("/api/diag", (req, res) => {
+  res.json({
+    status: "ok",
+    env: {
+      has_bucket: !!process.env.R2_BUCKET_NAME,
+      has_access_key: !!process.env.R2_ACCESS_KEY_ID,
+      has_secret_key: !!process.env.R2_SECRET_ACCESS_KEY,
+      has_endpoint: !!(process.env.R2_ENDPOINT || process.env.R2_ACCOUNT_ID),
+    }
+  });
 });
 
 app.get("/api/test", (req, res) => {
@@ -198,15 +237,21 @@ export default app;
 async function startServer() {
   const PORT = 3000;
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  // Em ambiente de desenvolvimento ou se a pasta dist não existir, use Vite
+  const isProd = process.env.NODE_ENV === "production";
+  const distPath = path.join(process.cwd(), "dist");
+  const fs = await import("fs");
+  const hasDist = fs.existsSync(distPath);
+
+  if (!isProd || !hasDist) {
+    console.log("[SERVER] Starting in development mode (using Vite middleware)");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else if (!process.env.VERCEL) {
-    const distPath = path.join(process.cwd(), "dist");
+  } else {
+    console.log("[SERVER] Starting in production mode (serving from dist)");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
@@ -214,12 +259,13 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
+// Inicia o servidor se não estiver sendo importado como módulo (Vercel)
 if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
   startServer().catch(err => {
-    console.error("Server failed to start:", err);
+    console.error("Critical: Server failed to start:", err);
   });
 }
