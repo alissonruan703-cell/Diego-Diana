@@ -33,18 +33,95 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isStoryMode, setIsStoryMode] = useState(false);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  const [storySlides, setStorySlides] = useState<any[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const clickSfx = useRef<HTMLAudioElement | null>(null);
   const popSfx = useRef<HTMLAudioElement | null>(null);
   const confettiInstance = useRef<any>(null);
+
+  // Generate slides whenever images or messages change
+  useEffect(() => {
+    if (images.length === 0) return;
+
+    const slides: any[] = [];
+    let imagePointer = 0;
+    let messagePointer = 0;
+
+    // A pattern of layouts to cycle through
+    const layoutPattern = ['text', 'single-image', 'double-image', 'single-image'];
+    let patternCounter = 0;
+
+    // Loop until all images are assigned
+    while (imagePointer < images.length) {
+      const type = layoutPattern[patternCounter % layoutPattern.length];
+      patternCounter++;
+
+      if (type === 'text') {
+        slides.push({
+          type: 'text',
+          message: defaultMessages[messagePointer % defaultMessages.length],
+          images: []
+        });
+        messagePointer++;
+      } else if (type === 'single-image') {
+        slides.push({
+          type: 'single-image',
+          images: [images[imagePointer]],
+          message: defaultMessages[messagePointer % defaultMessages.length]
+        });
+        imagePointer += 1;
+        messagePointer++;
+      } else if (type === 'double-image') {
+        // If only 1 image left, fallback to single-image
+        if (imagePointer + 1 < images.length) {
+          slides.push({
+            type: 'double-image',
+            images: [images[imagePointer], images[imagePointer + 1]],
+            message: defaultMessages[messagePointer % defaultMessages.length]
+          });
+          imagePointer += 2;
+          messagePointer++;
+        } else {
+          slides.push({
+            type: 'single-image',
+            images: [images[imagePointer]],
+            message: defaultMessages[messagePointer % defaultMessages.length]
+          });
+          imagePointer += 1;
+          messagePointer++;
+        }
+      }
+
+      if (slides.length > 500) break; // Infinite loop protection
+    }
+
+    // Always end with a meaningful text slide if the last one wasn't text
+    if (slides[slides.length - 1].type !== 'text') {
+      slides.push({
+        type: 'text',
+        message: "Diego & Diana: Para todo o sempre.",
+        images: []
+      });
+    }
+
+    setStorySlides(slides);
+  }, [images]);
 
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchImages = async () => {
     try {
-      const response = await fetch('/api/images');
-      const data = await response.json();
+      const response = await fetch('api/images');
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error("Failed to parse JSON response", text);
+        throw new Error("Resposta do servidor inválida");
+      }
+      
       if (data.error) {
         setError(data.error);
       } else if (data.images && data.images.length > 0) {
@@ -74,7 +151,7 @@ export default function App() {
     formData.append("image", file);
 
     try {
-      const response = await fetch("/api/upload", {
+      const response = await fetch("api/upload", {
         method: "POST",
         body: formData,
       });
@@ -197,8 +274,7 @@ export default function App() {
 
   const nextStory = () => {
     playSfx('click');
-    const maxIndex = Math.ceil(images.length / 1.5); // Adjusted for varying image counts per slide
-    if (currentStoryIndex < maxIndex) {
+    if (currentStoryIndex < storySlides.length - 1) {
       setCurrentStoryIndex(prev => prev + 1);
     } else {
       setIsStoryMode(false);
@@ -255,8 +331,8 @@ export default function App() {
         src="https://1zeobazjs4hzhzb8.public.blob.vercel-storage.com/YTDown_YouTube_Lady-Gaga-Bruno-Mars-Die-With-A-Smile-Of_Media_kPa7bsKwL-c_009_128k.mp3" 
       />
       <canvas id="story-confetti" className="fixed inset-0 pointer-events-none z-[1000]" />
-      <audio ref={clickSfx} src="https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3" />
-      <audio ref={popSfx} src="https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3" />
+      <audio ref={clickSfx} src="https://cdn.pixabay.com/audio/2022/03/15/audio_783d47ad23.mp3" />
+      <audio ref={popSfx} src="https://cdn.pixabay.com/audio/2021/08/04/audio_9a75667372.mp3" />
 
       {/* Animated Handwriting Illustration (Sketchy Style) */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
@@ -362,7 +438,7 @@ export default function App() {
       </button>
 
       {/* Hero Section */}
-      <section className="relative h-screen flex items-center justify-center overflow-hidden bg-rose-50/20">
+      <section className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-rose-50/20 py-20 px-4">
         {/* Animated Background Gradients */}
         <div className="absolute inset-0 pointer-events-none opacity-40">
            <motion.div 
@@ -399,7 +475,7 @@ export default function App() {
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 1.5, ease: "easeOut" }}
-          className="relative z-10 text-center px-4 max-w-5xl"
+          className="relative z-10 text-center w-full max-w-5xl"
         >
           <motion.div
             initial={{ opacity: 0, y: -20 }}
@@ -421,7 +497,7 @@ export default function App() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.7 }}
-            className="text-5xl md:text-8xl lg:text-9xl font-serif text-rose-950 mb-3 md:mb-6 tracking-tighter leading-[0.9]"
+            className="text-5xl md:text-8xl lg:text-9xl font-serif text-rose-950 mb-3 md:mb-6 tracking-tighter leading-[1.1] md:leading-[0.9]"
           >
             Diego & Diana
           </motion.h1>
@@ -452,7 +528,7 @@ export default function App() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1.4 }}
-            className="flex flex-wrap justify-center gap-6"
+            className="flex flex-col sm:flex-row items-center justify-center gap-4 md:gap-6 mb-20 md:mb-32"
           >
             <button 
               onClick={() => {
@@ -460,7 +536,7 @@ export default function App() {
                 setIsStoryMode(true);
                 if (!isPlaying) toggleAudio();
               }}
-              className="group relative flex items-center gap-3 bg-rose-500 text-white px-12 py-5 rounded-full shadow-2xl hover:bg-rose-600 transition-all font-medium text-xl overflow-hidden"
+              className="group relative flex items-center gap-3 bg-rose-500 text-white px-8 md:px-12 py-4 md:py-5 rounded-full shadow-2xl hover:bg-rose-600 transition-all font-medium text-lg md:text-xl overflow-hidden w-full sm:w-auto justify-center active:scale-95"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
               <Sparkles size={24} className="group-hover:scale-125 transition-transform" />
@@ -468,7 +544,7 @@ export default function App() {
             </button>
             <button 
               onClick={() => setShowQR(!showQR)}
-              className="flex items-center gap-2 bg-white/80 backdrop-blur-sm border border-rose-100 px-8 py-5 rounded-full shadow-lg hover:shadow-xl transition-all text-rose-800 font-medium cursor-pointer"
+              className="flex items-center gap-2 bg-white/80 backdrop-blur-sm border border-rose-100 px-8 py-4 md:py-5 rounded-full shadow-lg hover:shadow-xl transition-all text-rose-800 font-medium cursor-pointer w-full sm:w-auto justify-center active:scale-95"
             >
               <Share2 size={20} />
               {showQR ? "Fechar QR" : "Compartilhar"}
@@ -477,9 +553,9 @@ export default function App() {
         </motion.div>
 
         <motion.div 
-          animate={{ y: [0, 15, 0] }}
+          animate={{ y: [0, 10, 0] }}
           transition={{ repeat: Infinity, duration: 2.5 }}
-          className="absolute bottom-12 left-1/2 -translate-x-1/2 text-rose-400 opacity-50 flex flex-col items-center gap-2"
+          className="absolute bottom-10 md:bottom-12 left-1/2 -translate-x-1/2 text-rose-400 opacity-50 flex flex-col items-center gap-2"
         >
           <span className="text-[10px] uppercase tracking-[0.3em] font-mono">Deslize para ver</span>
           <div className="w-6 h-10 border-2 border-rose-300 rounded-full flex justify-center p-1">
@@ -571,7 +647,7 @@ export default function App() {
             <div className="absolute inset-0 flex items-center justify-center opacity-40 blur-3xl scale-125">
                <motion.img 
                   key={`bg-${currentStoryIndex}`}
-                  src={images[currentStoryIndex * 2]} 
+                  src={storySlides[currentStoryIndex]?.images?.[0] || (images.length > 0 ? images[0] : "")} 
                   className="w-full h-full object-cover transition-all duration-1000" 
                   referrerPolicy="no-referrer" 
                />
@@ -620,16 +696,16 @@ export default function App() {
                     className="w-full flex-1 flex flex-col items-center justify-center"
                   >
                     <div className="w-full max-w-5xl flex flex-col items-center justify-center gap-6 md:gap-10">
-                      {/* Variety Layouts based on index */}
-                      {currentStoryIndex % 3 === 0 ? (
-                        /* Type: TEXT ONLY - High focus on typography */
+                      {/* Variety Layouts based on slide type */}
+                      {storySlides[currentStoryIndex]?.type === 'text' ? (
+                        /* Type: TEXT ONLY */
                         <div className="py-10 md:py-20 px-8 text-center relative max-w-3xl">
                           <motion.div
                             initial={{ scale: 0.8, opacity: 0 }}
                             animate={{ scale: 1, opacity: 0.15 }}
                             className="absolute inset-0 flex items-center justify-center -z-10"
                           >
-                             <Heart size={140} md:size={180} className="fill-white" />
+                             <Heart className="fill-white size-32 md:size-48" />
                           </motion.div>
                           <motion.h4 
                             initial={{ y: 20, opacity: 0 }}
@@ -637,15 +713,15 @@ export default function App() {
                             transition={{ delay: 0.2 }}
                             className="text-white text-xl md:text-4xl lg:text-5xl font-serif italic drop-shadow-xl leading-tight"
                           >
-                            {defaultMessages[currentStoryIndex % defaultMessages.length]}
+                            {storySlides[currentStoryIndex].message}
                           </motion.h4>
                         </div>
-                      ) : currentStoryIndex % 3 === 1 ? (
-                        /* Type: IMAGE ONLY - Full cinematic view without cropping */
+                      ) : storySlides[currentStoryIndex]?.type === 'single-image' ? (
+                        /* Type: IMAGE ONLY */
                         <div className="w-full h-full flex flex-col items-center px-4">
-                           <div className="w-full max-w-sm md:max-w-3xl max-h-[65vh] md:max-h-[75vh] rounded-[2rem] md:rounded-[3rem] overflow-hidden border border-white/20 shadow-2xl bg-black/30 flex items-center justify-center">
+                           <div className="w-full max-w-sm md:max-w-4xl max-h-[60vh] md:max-h-[70vh] rounded-[2rem] md:rounded-[3rem] overflow-hidden border border-white/20 shadow-2xl bg-black/30 flex items-center justify-center">
                              <img 
-                               src={images[(currentStoryIndex * 2) % images.length]} 
+                               src={storySlides[currentStoryIndex].images[0]} 
                                className="w-full h-full object-contain"
                                alt="Memória"
                                referrerPolicy="no-referrer"
@@ -653,40 +729,41 @@ export default function App() {
                            </div>
                            <motion.p 
                              initial={{ opacity: 0 }}
-                             animate={{ opacity: 0.4 }}
+                             animate={{ opacity: 0.5 }}
                              transition={{ delay: 0.4 }}
-                             className="mt-6 text-white text-[8px] md:text-[10px] font-mono tracking-[0.3em] uppercase"
+                             className="mt-6 text-white text-[10px] md:text-xs font-mono tracking-[0.3em] uppercase text-center max-w-xl"
                            >
-                             Memórias Eternas
+                             {storySlides[currentStoryIndex].message}
                            </motion.p>
                         </div>
-                      ) : (
-                        /* Type: MIXED - Two images but smaller to fit better */
+                      ) : storySlides[currentStoryIndex]?.type === 'double-image' ? (
+                        /* Type: MIXED - Two images */
                         <div className="flex flex-col items-center gap-6 w-full h-full px-6">
-                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl justify-items-center">
-                              {[0, 1].map((offset) => {
-                                const idx = (currentStoryIndex * 2 + offset) % images.length;
-                                return (
-                                  <motion.div 
-                                    key={offset}
-                                    initial={{ opacity: 0, scale: 0.9 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    transition={{ delay: 0.1 + offset * 0.1 }}
-                                    className={`rounded-[1.5rem] md:rounded-[2rem] overflow-hidden border border-white/10 shadow-xl bg-black/40 h-56 md:h-80 w-full flex items-center justify-center ${offset === 1 ? 'hidden md:flex' : 'flex'}`}
-                                  >
-                                    <img 
-                                      src={images[idx]} 
-                                      className="w-full h-full object-contain" 
-                                      referrerPolicy="no-referrer" 
-                                      alt=""
-                                    />
-                                  </motion.div>
-                                );
-                              })}
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-5xl justify-items-center">
+                              {storySlides[currentStoryIndex].images.map((img: string, idx: number) => (
+                                <motion.div 
+                                  key={idx}
+                                  initial={{ opacity: 0, scale: 0.9 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  transition={{ delay: 0.1 + idx * 0.1 }}
+                                  className={`rounded-[1.5rem] md:rounded-[2rem] overflow-hidden border border-white/10 shadow-xl bg-black/40 h-56 md:h-80 lg:h-[450px] w-full flex items-center justify-center`}
+                                >
+                                  <img 
+                                    src={img} 
+                                    className="w-full h-full object-contain" 
+                                    referrerPolicy="no-referrer" 
+                                    alt=""
+                                  />
+                                </motion.div>
+                              ))}
                            </div>
                            <h4 className="text-white text-lg md:text-3xl font-serif italic text-center drop-shadow-lg max-w-xl leading-relaxed">
-                             {defaultMessages[currentStoryIndex % defaultMessages.length]}
+                             {storySlides[currentStoryIndex].message}
                            </h4>
+                        </div>
+                      ) : (
+                        <div className="text-white text-center">
+                          <p>Nenhuma imagem para exibir ainda.</p>
                         </div>
                       )}
                     </div>
@@ -703,13 +780,13 @@ export default function App() {
               {/* Progress Bar (at the bottom) */}
               <div className="w-full max-w-xl flex flex-col items-center pb-8 md:pb-12 relative z-20">
                 <div className="flex justify-between w-full h-1 gap-1 md:gap-2 px-10">
-                   {Array.from({ length: Math.ceil(images.length / 1.5) }).map((_, i) => (
+                   {storySlides.map((_, i) => (
                      <motion.div 
                         key={i} 
                         initial={false}
                         animate={{ 
-                          backgroundColor: i === currentStoryIndex ? "#f43f5e" : "rgba(255,255,255,0.1)",
-                          scaleY: i === currentStoryIndex ? 2 : 1
+                           backgroundColor: i === currentStoryIndex ? "#f43f5e" : i < currentStoryIndex ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.1)",
+                           scaleY: i === currentStoryIndex ? 2 : 1
                         }}
                         className="rounded-full flex-1 h-full"
                      />

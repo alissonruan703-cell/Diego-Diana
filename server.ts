@@ -15,12 +15,18 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok" });
+  });
+
   // API Route to list blobs
   app.get("/api/images", async (req, res) => {
     try {
       const token = process.env.BLOB_READ_WRITE_TOKEN;
       if (!token) {
-        return res.json({ 
+        console.warn("BLOB_READ_WRITE_TOKEN is missing");
+        return res.status(200).json({ 
           images: [], 
           error: "BLOB_READ_WRITE_TOKEN não configurado. Adicione nos segredos do AI Studio." 
         });
@@ -31,10 +37,13 @@ async function startServer() {
         .filter(blob => /\.(png|jpg|jpeg|gif|webp)$/i.test(blob.pathname))
         .map(blob => blob.url);
       
-      res.json({ images });
-    } catch (error) {
+      return res.json({ images });
+    } catch (error: any) {
       console.error("Error listing blobs:", error);
-      res.status(500).json({ error: "Falha ao buscar imagens do Vercel Blob" });
+      return res.status(500).json({ 
+        error: "Falha ao buscar imagens do Vercel Blob",
+        details: error?.message || String(error)
+      });
     }
   });
 
@@ -55,10 +64,13 @@ async function startServer() {
         token: token,
       });
 
-      res.json(blob);
-    } catch (error) {
+      return res.json(blob);
+    } catch (error: any) {
       console.error("Upload error:", error);
-      res.status(500).json({ error: "Erro ao fazer upload para o Vercel Blob" });
+      return res.status(500).json({ 
+        error: "Erro ao fazer upload para o Vercel Blob",
+        details: error?.message || String(error)
+      });
     }
   });
 
