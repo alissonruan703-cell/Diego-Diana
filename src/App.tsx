@@ -319,12 +319,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#fffafa] text-slate-800 font-sans selection:bg-rose-100 overflow-x-hidden">
+    <div className="min-h-screen bg-[#fffafa] text-slate-800 font-sans selection:bg-rose-100 overflow-x-hidden" suppressHydrationWarning>
       {/* Background Audio and SFX */}
       <audio 
         ref={audioRef} 
         loop 
-        src="https://1zeobazjs4hzhzb8.public.blob.vercel-storage.com/YTDown_YouTube_Lady-Gaga-Bruno-Mars-Die-With-A-Smile-Of_Media_kPa7bsKwL-c_009_128k.mp3" 
+        // src="..." // Coloque aqui a URL do seu áudio hospedado no R2
       />
       <canvas id="story-confetti" className="fixed inset-0 pointer-events-none z-[1000]" />
       <audio ref={clickSfx} src="https://www.soundjay.com/buttons/sounds/button-16.mp3" />
@@ -651,7 +651,7 @@ export default function App() {
                    className="absolute inset-0"
                  >
                    <img 
-                      src={storySlides[currentStoryIndex]?.images?.[0] || (images.length > 0 ? images[0] : "")} 
+                      src={storySlides[currentStoryIndex]?.images?.[0] || images[0] || undefined} 
                       className="w-full h-full object-cover blur-3xl scale-110" 
                       referrerPolicy="no-referrer" 
                       alt=""
@@ -688,7 +688,7 @@ export default function App() {
                 <div className="flex items-center gap-3">
                   <div className="size-10 md:size-12 rounded-full border-2 border-rose-500 p-0.5 overflow-hidden bg-white/10">
                     <img 
-                      src={images[0]} 
+                      src={images[0] || undefined} 
                       className="w-full h-full object-cover rounded-full" 
                       referrerPolicy="no-referrer" 
                       alt=""
