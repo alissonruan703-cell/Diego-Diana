@@ -13,7 +13,11 @@ let s3Client: S3Client | null = null;
 const accessKey = process.env.R2_ACCESS_KEY_ID || "";
 const secretKey = process.env.R2_SECRET_ACCESS_KEY || "";
 const accountId = process.env.R2_ACCOUNT_ID || "";
-const endpoint = process.env.R2_ENDPOINT || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "");
+let endpoint = process.env.R2_ENDPOINT || "";
+
+if (!endpoint && accountId) {
+  endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+}
 
 if (accessKey && secretKey && endpoint) {
   console.log("[SERVER] Initializing R2 S3 Client with endpoint:", endpoint);
@@ -26,7 +30,7 @@ if (accessKey && secretKey && endpoint) {
     },
   });
 } else {
-  console.warn("[SERVER] R2 credentials or endpoint missing. R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and (R2_ENDPOINT or R2_ACCOUNT_ID) are required.");
+  console.warn("[SERVER] R2 configuration incomplete. Required fields: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and either R2_ACCOUNT_ID or R2_ENDPOINT.");
 }
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -46,8 +50,26 @@ app.get("/api/test", (req, res) => {
 
 // Health check
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
+  res.json({ 
+    status: "ok",
+    r2: {
+      configured: !!s3Client,
+      hasBucket: !!process.env.R2_BUCKET_NAME
+    }
+  });
 });
+
+// Helper to get base URL for R2 objects
+const getS3Url = (key: string) => {
+  const bucketName = process.env.R2_BUCKET_NAME;
+  let baseUrl = process.env.R2_PUBLIC_URL;
+  if (!baseUrl) {
+    const accId = process.env.R2_ACCOUNT_ID;
+    const endp = process.env.R2_ENDPOINT || (accId ? `https://${accId}.r2.cloudflarestorage.com` : "");
+    baseUrl = `${endp.replace(/\/$/, "")}/${bucketName}`;
+  }
+  return `${baseUrl.replace(/\/$/, "")}/${key.startsWith("/") ? key.substring(1) : key}`;
+};
 
 // API Route to list R2 images
 app.get("/api/images", async (req, res) => {
@@ -55,97 +77,68 @@ app.get("/api/images", async (req, res) => {
   try {
     const bucketName = process.env.R2_BUCKET_NAME;
     if (!bucketName || !s3Client) {
-      console.warn("[SERVER] R2 Configuration Missing:", {
-        hasBucket: !!bucketName,
-        hasClient: !!s3Client,
-        hasAccessKey: !!process.env.R2_ACCESS_KEY_ID,
-        hasSecretKey: !!process.env.R2_SECRET_ACCESS_KEY,
-        hasAccountId: !!process.env.R2_ACCOUNT_ID,
-        hasEndpoint: !!process.env.R2_ENDPOINT
-      });
+      const missing = [];
+      if (!process.env.R2_ACCESS_KEY_ID) missing.push("R2_ACCESS_KEY_ID");
+      if (!process.env.R2_SECRET_ACCESS_KEY) missing.push("R2_SECRET_ACCESS_KEY");
+      if (!process.env.R2_BUCKET_NAME) missing.push("R2_BUCKET_NAME");
+      if (!process.env.R2_ACCOUNT_ID && !process.env.R2_ENDPOINT) missing.push("R2_ACCOUNT_ID or R2_ENDPOINT");
+
       return res.status(200).json({ 
         images: [], 
-        error: "R2 não configurado ou credenciais inválidas. Verifique os segredos (secrets)." 
+        error: "R2 não configurado. Faltam segredos: " + missing.join(", ") 
       });
     }
-    
-    // Tentamos primeiro o prefixo direto diego-diana/ que parece ser o correto baseado na URL pública
-    const prefix = "diego-diana/";
-    console.log(`[SERVER] Listing objects in bucket: "${bucketName}" with prefix: "${prefix}"`);
-    
-    const command = new ListObjectsV2Command({ 
-      Bucket: bucketName,
-      Prefix: prefix
-    });
-    const response = await s3Client.send(command);
-    
-    console.log(`[SERVER] R2 response - KeyCount: ${response.KeyCount || 0}`);
     
     let images: string[] = [];
+    const prefixes = ["diego-diana/", "ferramentaria/diego-diana/", ""];
     
-    if (response.Contents && response.Contents.length > 0) {
-      let baseUrl = process.env.R2_PUBLIC_URL;
-      if (!baseUrl) {
-        const accId = process.env.R2_ACCOUNT_ID;
-        const endp = process.env.R2_ENDPOINT || (accId ? `https://${accId}.r2.cloudflarestorage.com` : "");
-        baseUrl = `${endp}/${bucketName}`;
-      }
-      baseUrl = baseUrl.replace(/\/$/, "");
-
-      images = response.Contents
-        .filter(object => {
-          const key = object.Key || "";
-          const isImage = /\.(png|jpg|jpeg|gif|webp)$/i.test(key);
-          const isNotFolder = !key.endsWith("/");
-          return isImage && isNotFolder;
-        })
-        .map(object => {
-          const key = object.Key?.startsWith("/") ? object.Key.substring(1) : object.Key;
-          return `${baseUrl}/${key}`;
+    for (const prefix of prefixes) {
+      console.log(`[SERVER] Trying prefix: "${prefix}"`);
+      try {
+        const command = new ListObjectsV2Command({ 
+          Bucket: bucketName,
+          Prefix: prefix,
+          MaxKeys: 100
         });
-    } else {
-      console.log("[SERVER] No contents found with prefix 'diego-diana/'. Trying prefix 'ferramentaria/diego-diana/' as fallback...");
-      const fallbackCommand = new ListObjectsV2Command({ 
-        Bucket: bucketName,
-        Prefix: "ferramentaria/diego-diana/"
-      });
-      const fallbackResponse = await s3Client.send(fallbackCommand);
-      
-      if (fallbackResponse.Contents && fallbackResponse.Contents.length > 0) {
-        let baseUrl = process.env.R2_PUBLIC_URL;
-        if (!baseUrl) {
-          const accId = process.env.R2_ACCOUNT_ID;
-          const endp = process.env.R2_ENDPOINT || (accId ? `https://${accId}.r2.cloudflarestorage.com` : "");
-          baseUrl = `${endp}/${bucketName}`;
+        const response = await s3Client.send(command);
+        
+        if (response.Contents && response.Contents.length > 0) {
+          const found = response.Contents
+            .filter(object => {
+              const key = (object.Key || "").toLowerCase();
+              return /\.(png|jpg|jpeg|gif|webp)$/i.test(key) && !key.endsWith("/");
+            })
+            .map(object => getS3Url(object.Key!));
+          
+          if (found.length > 0) {
+            images = found;
+            console.log(`[SERVER] Found ${images.length} images with prefix "${prefix}"`);
+            break; 
+          }
         }
-        baseUrl = baseUrl.replace(/\/$/, "");
-
-        images = fallbackResponse.Contents
-          .filter(object => {
-            const key = object.Key || "";
-            return /\.(png|jpg|jpeg|gif|webp)$/i.test(key) && !key.endsWith("/");
-          })
-          .map(object => {
-            const key = object.Key?.startsWith("/") ? object.Key.substring(1) : object.Key;
-            return `${baseUrl}/${key}`;
-          });
+      } catch (e) {
+        console.warn(`[SERVER] Failed to list with prefix "${prefix}":`, e);
       }
     }
-    
+
     if (images.length === 0) {
-      console.log("[SERVER] Still no images found. Listing first 10 keys in bucket for debug:");
-      const debugCommand = new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 10 });
-      const debugResponse = await s3Client.send(debugCommand);
-      console.log("[SERVER] Debug list:", debugResponse.Contents?.map(c => c.Key) || "Empty bucket");
+      console.log("[SERVER] Still no images found listing first 10 keys for debug:");
+      try {
+        const debugCommand = new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 10 });
+        const debugResponse = await s3Client.send(debugCommand);
+        console.log("[SERVER] Debug list:", debugResponse.Contents?.map(c => c.Key) || "Empty bucket");
+      } catch (e: any) {
+        console.error("[SERVER] Debug list failed:", e?.message);
+      }
     }
 
-    console.log(`[SERVER] Final image count to return: ${images.length}`);
     return res.json({ images });
   } catch (error: any) {
     console.error("[SERVER] Error listing R2 objects:", error);
     return res.status(500).json({ 
       error: "Falha ao buscar imagens do R2",
-      details: error?.message || String(error)
+      details: error?.message || String(error),
+      code: error?.$metadata?.httpStatusCode || 500
     });
   }
 });
@@ -162,7 +155,7 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
       return res.status(400).json({ error: "Nenhum arquivo enviado" });
     }
 
-    const key = `ferramentaria/diego-diana/${Date.now()}-${req.file.originalname}`;
+    const key = `diego-diana/${Date.now()}-${req.file.originalname}`;
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: key,
@@ -171,15 +164,7 @@ app.post("/api/upload", upload.single("image"), async (req, res) => {
     });
     
     await s3Client.send(command);
-
-    let baseUrl = process.env.R2_PUBLIC_URL;
-    if (!baseUrl) {
-      const endpoint = process.env.R2_ENDPOINT || (process.env.R2_ACCOUNT_ID ? `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : "");
-      baseUrl = `${endpoint}/${bucketName}`;
-    }
-    baseUrl = baseUrl.replace(/\/$/, "");
-
-    return res.json({ url: `${baseUrl}/${key}` });
+    return res.json({ url: getS3Url(key) });
   } catch (error: any) {
     console.error("[SERVER] Upload error:", error);
     return res.status(500).json({ 
