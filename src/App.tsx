@@ -112,7 +112,7 @@ export default function App() {
 
   const fetchImages = async () => {
     try {
-      const response = await fetch('api/images');
+      const response = await fetch('/api/images');
       const text = await response.text();
       let data;
       try {
@@ -151,7 +151,7 @@ export default function App() {
     formData.append("image", file);
 
     try {
-      const response = await fetch("api/upload", {
+      const response = await fetch("/api/upload", {
         method: "POST",
         body: formData,
       });
@@ -331,8 +331,8 @@ export default function App() {
         src="https://1zeobazjs4hzhzb8.public.blob.vercel-storage.com/YTDown_YouTube_Lady-Gaga-Bruno-Mars-Die-With-A-Smile-Of_Media_kPa7bsKwL-c_009_128k.mp3" 
       />
       <canvas id="story-confetti" className="fixed inset-0 pointer-events-none z-[1000]" />
-      <audio ref={clickSfx} src="https://cdn.pixabay.com/audio/2022/03/15/audio_783d47ad23.mp3" />
-      <audio ref={popSfx} src="https://cdn.pixabay.com/audio/2021/08/04/audio_9a75667372.mp3" />
+      <audio ref={clickSfx} src="https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3" />
+      <audio ref={popSfx} src="https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3" />
 
       {/* Animated Handwriting Illustration (Sketchy Style) */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
