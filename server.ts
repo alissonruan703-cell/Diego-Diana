@@ -3,11 +3,31 @@ console.log("[SERVER] Global entry point hit");
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { list, put } from "@vercel/blob";
 import dotenv from "dotenv";
+dotenv.config();
+
+import { S3Client, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import multer from "multer";
 
-dotenv.config();
+let s3Client: S3Client | null = null;
+const accessKey = process.env.R2_ACCESS_KEY_ID || "";
+const secretKey = process.env.R2_SECRET_ACCESS_KEY || "";
+const accountId = process.env.R2_ACCOUNT_ID || "";
+const endpoint = process.env.R2_ENDPOINT || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "");
+
+if (accessKey && secretKey && endpoint) {
+  console.log("[SERVER] Initializing R2 S3 Client with endpoint:", endpoint);
+  s3Client = new S3Client({
+    region: "auto",
+    endpoint: endpoint,
+    credentials: {
+      accessKeyId: accessKey,
+      secretAccessKey: secretKey,
+    },
+  });
+} else {
+  console.warn("[SERVER] R2 credentials or endpoint missing. R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and (R2_ENDPOINT or R2_ACCOUNT_ID) are required.");
+}
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -29,56 +49,141 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// API Route to list blobs
+// API Route to list R2 images
 app.get("/api/images", async (req, res) => {
   console.log("[SERVER] Received request for /api/images");
   try {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) {
-      console.warn("BLOB_READ_WRITE_TOKEN is missing");
+    const bucketName = process.env.R2_BUCKET_NAME;
+    if (!bucketName || !s3Client) {
+      console.warn("[SERVER] R2 Configuration Missing:", {
+        hasBucket: !!bucketName,
+        hasClient: !!s3Client,
+        hasAccessKey: !!process.env.R2_ACCESS_KEY_ID,
+        hasSecretKey: !!process.env.R2_SECRET_ACCESS_KEY,
+        hasAccountId: !!process.env.R2_ACCOUNT_ID,
+        hasEndpoint: !!process.env.R2_ENDPOINT
+      });
       return res.status(200).json({ 
         images: [], 
-        error: "BLOB_READ_WRITE_TOKEN não configurado. Adicione nos segredos do AI Studio." 
+        error: "R2 não configurado ou credenciais inválidas. Verifique os segredos (secrets)." 
       });
     }
     
-    const { blobs } = await list({ token });
-    const images = blobs
-      .filter(blob => /\.(png|jpg|jpeg|gif|webp)$/i.test(blob.pathname))
-      .map(blob => blob.url);
+    // Tentamos primeiro o prefixo direto diego-diana/ que parece ser o correto baseado na URL pública
+    const prefix = "diego-diana/";
+    console.log(`[SERVER] Listing objects in bucket: "${bucketName}" with prefix: "${prefix}"`);
     
+    const command = new ListObjectsV2Command({ 
+      Bucket: bucketName,
+      Prefix: prefix
+    });
+    const response = await s3Client.send(command);
+    
+    console.log(`[SERVER] R2 response - KeyCount: ${response.KeyCount || 0}`);
+    
+    let images: string[] = [];
+    
+    if (response.Contents && response.Contents.length > 0) {
+      let baseUrl = process.env.R2_PUBLIC_URL;
+      if (!baseUrl) {
+        const accId = process.env.R2_ACCOUNT_ID;
+        const endp = process.env.R2_ENDPOINT || (accId ? `https://${accId}.r2.cloudflarestorage.com` : "");
+        baseUrl = `${endp}/${bucketName}`;
+      }
+      baseUrl = baseUrl.replace(/\/$/, "");
+
+      images = response.Contents
+        .filter(object => {
+          const key = object.Key || "";
+          const isImage = /\.(png|jpg|jpeg|gif|webp)$/i.test(key);
+          const isNotFolder = !key.endsWith("/");
+          return isImage && isNotFolder;
+        })
+        .map(object => {
+          const key = object.Key?.startsWith("/") ? object.Key.substring(1) : object.Key;
+          return `${baseUrl}/${key}`;
+        });
+    } else {
+      console.log("[SERVER] No contents found with prefix 'diego-diana/'. Trying prefix 'ferramentaria/diego-diana/' as fallback...");
+      const fallbackCommand = new ListObjectsV2Command({ 
+        Bucket: bucketName,
+        Prefix: "ferramentaria/diego-diana/"
+      });
+      const fallbackResponse = await s3Client.send(fallbackCommand);
+      
+      if (fallbackResponse.Contents && fallbackResponse.Contents.length > 0) {
+        let baseUrl = process.env.R2_PUBLIC_URL;
+        if (!baseUrl) {
+          const accId = process.env.R2_ACCOUNT_ID;
+          const endp = process.env.R2_ENDPOINT || (accId ? `https://${accId}.r2.cloudflarestorage.com` : "");
+          baseUrl = `${endp}/${bucketName}`;
+        }
+        baseUrl = baseUrl.replace(/\/$/, "");
+
+        images = fallbackResponse.Contents
+          .filter(object => {
+            const key = object.Key || "";
+            return /\.(png|jpg|jpeg|gif|webp)$/i.test(key) && !key.endsWith("/");
+          })
+          .map(object => {
+            const key = object.Key?.startsWith("/") ? object.Key.substring(1) : object.Key;
+            return `${baseUrl}/${key}`;
+          });
+      }
+    }
+    
+    if (images.length === 0) {
+      console.log("[SERVER] Still no images found. Listing first 10 keys in bucket for debug:");
+      const debugCommand = new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 10 });
+      const debugResponse = await s3Client.send(debugCommand);
+      console.log("[SERVER] Debug list:", debugResponse.Contents?.map(c => c.Key) || "Empty bucket");
+    }
+
+    console.log(`[SERVER] Final image count to return: ${images.length}`);
     return res.json({ images });
   } catch (error: any) {
-    console.error("Error listing blobs:", error);
+    console.error("[SERVER] Error listing R2 objects:", error);
     return res.status(500).json({ 
-      error: "Falha ao buscar imagens do Vercel Blob",
+      error: "Falha ao buscar imagens do R2",
       details: error?.message || String(error)
     });
   }
 });
 
-// API Route to upload an image
+// API Route to upload an image to R2
 app.post("/api/upload", upload.single("image"), async (req, res) => {
   try {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) {
-      return res.status(401).json({ error: "Token não configurado" });
+    const bucketName = process.env.R2_BUCKET_NAME;
+    if (!bucketName || !s3Client) {
+      return res.status(401).json({ error: "R2 não configurado ou credenciais inválidas" });
     }
 
     if (!req.file) {
       return res.status(400).json({ error: "Nenhum arquivo enviado" });
     }
 
-    const blob = await put(req.file.originalname, req.file.buffer, {
-      access: "public",
-      token: token,
+    const key = `ferramentaria/diego-diana/${Date.now()}-${req.file.originalname}`;
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
     });
+    
+    await s3Client.send(command);
 
-    return res.json(blob);
+    let baseUrl = process.env.R2_PUBLIC_URL;
+    if (!baseUrl) {
+      const endpoint = process.env.R2_ENDPOINT || (process.env.R2_ACCOUNT_ID ? `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : "");
+      baseUrl = `${endpoint}/${bucketName}`;
+    }
+    baseUrl = baseUrl.replace(/\/$/, "");
+
+    return res.json({ url: `${baseUrl}/${key}` });
   } catch (error: any) {
-    console.error("Upload error:", error);
+    console.error("[SERVER] Upload error:", error);
     return res.status(500).json({ 
-      error: "Erro ao fazer upload para o Vercel Blob",
+      error: "Erro ao fazer upload para o R2",
       details: error?.message || String(error)
     });
   }

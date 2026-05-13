@@ -24,6 +24,13 @@ const defaultMessages = [
   "Diego & Diana: Para todo o sempre."
 ];
 
+const INITIAL_IMAGES = [
+  'https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1464347601390-25e2840a3b3a?auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1522673607200-16488bcdd397?auto=format&fit=crop&q=80'
+];
+
 export default function App() {
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,10 +41,25 @@ export default function App() {
   const [isStoryMode, setIsStoryMode] = useState(false);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
   const [storySlides, setStorySlides] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const storyContainerRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const clickSfx = useRef<HTMLAudioElement | null>(null);
   const popSfx = useRef<HTMLAudioElement | null>(null);
   const confettiInstance = useRef<any>(null);
+
+  // Lock body scroll when story mode is open
+  useEffect(() => {
+    if (isStoryMode) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [isStoryMode]);
 
   // Generate slides whenever images or messages change
   useEffect(() => {
@@ -46,57 +68,42 @@ export default function App() {
     const slides: any[] = [];
     let imagePointer = 0;
     let messagePointer = 0;
+    let turn = 0; // 0 for text, 1 for images
 
-    // A pattern of layouts to cycle through
-    const layoutPattern = ['text', 'single-image', 'double-image', 'single-image'];
-    let patternCounter = 0;
-
-    // Loop until all images are assigned
     while (imagePointer < images.length) {
-      const type = layoutPattern[patternCounter % layoutPattern.length];
-      patternCounter++;
-
-      if (type === 'text') {
+      if (turn === 0) {
+        // Text Slide
         slides.push({
           type: 'text',
           message: defaultMessages[messagePointer % defaultMessages.length],
           images: []
         });
         messagePointer++;
-      } else if (type === 'single-image') {
+        turn = 1;
+      } else {
+        // Image Slide
+        const remaining = images.length - imagePointer;
+        let numImages = 1;
+        
+        // Randomly decide group size but respect remaining images
+        if (remaining >= 3 && Math.random() > 0.7) numImages = 3;
+        else if (remaining >= 2 && Math.random() > 0.5) numImages = 2;
+
         slides.push({
-          type: 'single-image',
-          images: [images[imagePointer]],
+          type: numImages === 1 ? 'single-image' : numImages === 2 ? 'double-image' : 'triple-image',
+          images: images.slice(imagePointer, imagePointer + numImages),
           message: defaultMessages[messagePointer % defaultMessages.length]
         });
-        imagePointer += 1;
+        
+        imagePointer += numImages;
         messagePointer++;
-      } else if (type === 'double-image') {
-        // If only 1 image left, fallback to single-image
-        if (imagePointer + 1 < images.length) {
-          slides.push({
-            type: 'double-image',
-            images: [images[imagePointer], images[imagePointer + 1]],
-            message: defaultMessages[messagePointer % defaultMessages.length]
-          });
-          imagePointer += 2;
-          messagePointer++;
-        } else {
-          slides.push({
-            type: 'single-image',
-            images: [images[imagePointer]],
-            message: defaultMessages[messagePointer % defaultMessages.length]
-          });
-          imagePointer += 1;
-          messagePointer++;
-        }
+        turn = 0;
       }
-
-      if (slides.length > 500) break; // Infinite loop protection
+      if (slides.length > 200) break;
     }
 
     // Always end with a meaningful text slide if the last one wasn't text
-    if (slides[slides.length - 1].type !== 'text') {
+    if (slides.length > 0 && slides[slides.length - 1].type !== 'text') {
       slides.push({
         type: 'text',
         message: "Diego & Diana: Para todo o sempre.",
@@ -106,73 +113,6 @@ export default function App() {
 
     setStorySlides(slides);
   }, [images]);
-
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const fetchImages = async () => {
-    try {
-      const response = await fetch('/api/images');
-      if (!response.ok) {
-        const text = await response.text();
-        console.error(`API Error: ${response.status} - ${text.substring(0, 100)}`);
-        throw new Error(`Servidor retornou ${response.status}`);
-      }
-      const data = await response.json();
-      
-      if (data.error) {
-        setError(data.error);
-      } else if (data.images && data.images.length > 0) {
-        setImages(data.images);
-      } else {
-        setImages([
-           'https://images.unsplash.com/photo-1518199266791-5375a83190b7?auto=format&fit=crop&q=80',
-           'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?auto=format&fit=crop&q=80',
-           'https://images.unsplash.com/photo-1464347601390-25e2840a3b3a?auto=format&fit=crop&q=80',
-           'https://images.unsplash.com/photo-1522673607200-16488bcdd397?auto=format&fit=crop&q=80'
-        ]);
-      }
-    } catch (err) {
-      console.error("Failed to fetch images", err);
-      setError("Não foi possível carregar as imagens do Vercel Blob.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append("image", file);
-
-    try {
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (response.ok) {
-        await fetchImages();
-        safeConfetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
-      } else {
-        const data = await response.json();
-        alert(data.error || "Erro ao fazer upload");
-      }
-    } catch (err) {
-      console.error("Upload error", err);
-      alert("Erro ao conectar com o servidor para upload");
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
 
   const safeConfetti = (options: any) => {
     if (typeof window === 'undefined') return;
@@ -200,7 +140,68 @@ export default function App() {
 
   useEffect(() => {
     fetchImages();
+  }, []);
 
+  const fetchImages = async () => {
+    try {
+      const response = await fetch('/api/images');
+      if (!response.ok) {
+        throw new Error(`Servidor retornou ${response.status}`);
+      }
+      const data = await response.json();
+      
+      if (data.error) {
+        setError(data.error);
+        setImages(INITIAL_IMAGES);
+      } else if (data.images && data.images.length > 0) {
+        setImages(data.images);
+      } else {
+        setImages(INITIAL_IMAGES);
+      }
+    } catch (err) {
+      console.error("[App] Failed to fetch images", err);
+      setError("Não foi possível carregar as imagens do R2.");
+      setImages(INITIAL_IMAGES);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append("image", file);
+
+    try {
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        await fetchImages();
+        safeConfetti({
+          particleCount: 150,
+          spread: 100,
+          origin: { y: 0.6 }
+        });
+      } else {
+        const data = await response.json();
+        alert(data.error || "Erro ao fazer upload");
+      }
+    } catch (err) {
+      console.error("Upload error", err);
+      alert("Erro ao conectar com o servidor para upload");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  useEffect(() => {
     // Celebration effect on mount
     const duration = 4 * 1000;
     const animationEnd = Date.now() + duration;
@@ -292,6 +293,13 @@ export default function App() {
     }
   };
 
+  // Reset scroll on slide change
+  useEffect(() => {
+    if (storyContainerRef.current) {
+      storyContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [currentStoryIndex, isStoryMode]);
+
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
 
   if (loading) {
@@ -312,16 +320,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#fffafa] text-slate-800 font-sans selection:bg-rose-100 overflow-x-hidden">
-      {/* Configuration Error Alert */}
-      {error && (
-        <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-50 border-b border-amber-200 p-4 text-center">
-           <p className="text-amber-800 text-sm">
-             <span className="font-bold">Nota:</span> {error} 
-             <br />
-             <span className="text-xs opacity-70">Enquanto isso, estamos exibindo algumas imagens de exemplo.</span>
-           </p>
-        </div>
-      )}
       {/* Background Audio and SFX */}
       <audio 
         ref={audioRef} 
@@ -639,157 +637,218 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-rose-950 flex items-center justify-center overflow-hidden"
+            className="fixed inset-0 z-[100] bg-rose-950 flex flex-col items-center justify-between overflow-hidden"
           >
-            {/* Ambient Background */}
-            <div className="absolute inset-0 flex items-center justify-center opacity-40 blur-3xl scale-125">
-               <motion.img 
-                  key={`bg-${currentStoryIndex}`}
-                  src={storySlides[currentStoryIndex]?.images?.[0] || (images.length > 0 ? images[0] : "")} 
-                  className="w-full h-full object-cover transition-all duration-1000" 
-                  referrerPolicy="no-referrer" 
-               />
+            {/* Ambient Animated Background (Dynamic) */}
+            <div className="absolute inset-0 z-0">
+               <AnimatePresence mode="wait">
+                 <motion.div 
+                   key={`bg-blur-${currentStoryIndex}`}
+                   initial={{ opacity: 0 }}
+                   animate={{ opacity: 0.5 }}
+                   exit={{ opacity: 0 }}
+                   transition={{ duration: 1.2 }}
+                   className="absolute inset-0"
+                 >
+                   <img 
+                      src={storySlides[currentStoryIndex]?.images?.[0] || (images.length > 0 ? images[0] : "")} 
+                      className="w-full h-full object-cover blur-3xl scale-110" 
+                      referrerPolicy="no-referrer" 
+                      alt=""
+                   />
+                   <div className="absolute inset-0 bg-black/60" />
+                 </motion.div>
+               </AnimatePresence>
             </div>
 
-            <div className="relative z-10 w-full max-w-7xl h-full flex flex-col items-center justify-between py-6 md:py-8 px-4">
-              {/* Close Button */}
-              <button 
-                onClick={() => {
-                  playSfx('click');
-                  setIsStoryMode(false);
-                  setCurrentStoryIndex(0);
-                }}
-                className="absolute top-4 right-4 md:top-6 md:right-8 text-white/50 hover:text-white transition-colors z-[130] bg-white/5 hover:bg-white/10 p-2 md:p-3 rounded-full backdrop-blur-md border border-white/10"
-              >
-                <X className="size-6 md:size-8" />
-              </button>
-
-              {/* Side Navigation - Left */}
-              <button 
-                onClick={prevStory}
-                disabled={currentStoryIndex === 0}
-                className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 p-2 md:p-4 bg-white/5 hover:bg-white/10 rounded-full text-white disabled:opacity-0 transition-all border border-white/5 active:scale-95 z-[110] backdrop-blur-sm"
-                aria-label="Anterior"
-              >
-                <ChevronLeft className="size-8 md:size-12" />
-              </button>
-
-              {/* Side Navigation - Right */}
-              <button 
-                onClick={nextStory}
-                className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 p-2 md:p-4 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full text-white shadow-2xl flex items-center justify-center transition-all border border-white/20 active:scale-95 z-[110] group"
-                aria-label="Próximo"
-              >
-                <ChevronRight className="size-8 md:size-14" />
-              </button>
-
-              <div className="w-full flex-1 flex flex-col items-center justify-center min-h-0 pt-16 md:pt-14 overflow-hidden relative">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={currentStoryIndex}
-                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 1.05, y: -20 }}
-                    transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-                    className="w-full flex-1 flex flex-col items-center justify-center"
+            {/* Top Bar: Progress + Close */}
+            <div className="relative z-[130] w-full max-w-5xl pt-4 md:pt-8 px-4 flex flex-col gap-4">
+              {/* Progress Indicators */}
+              <div className="flex gap-1.5 h-1 w-full px-2">
+                {storySlides.map((_, i) => (
+                  <div 
+                    key={i} 
+                    className="flex-1 h-full bg-white/20 rounded-full overflow-hidden"
                   >
-                    <div className="w-full max-w-5xl flex flex-col items-center justify-center gap-6 md:gap-10">
-                      {/* Variety Layouts based on slide type */}
-                      {storySlides[currentStoryIndex]?.type === 'text' ? (
-                        /* Type: TEXT ONLY */
-                        <div className="py-10 md:py-20 px-8 text-center relative max-w-3xl">
-                          <motion.div
-                            initial={{ scale: 0.8, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 0.15 }}
-                            className="absolute inset-0 flex items-center justify-center -z-10"
-                          >
-                             <Heart className="fill-white size-32 md:size-48" />
-                          </motion.div>
-                          <motion.h4 
-                            initial={{ y: 20, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            transition={{ delay: 0.2 }}
-                            className="text-white text-xl md:text-4xl lg:text-5xl font-serif italic drop-shadow-xl leading-tight"
-                          >
-                            {storySlides[currentStoryIndex].message}
-                          </motion.h4>
-                        </div>
-                      ) : storySlides[currentStoryIndex]?.type === 'single-image' ? (
-                        /* Type: IMAGE ONLY */
-                        <div className="w-full h-full flex flex-col items-center px-4">
-                           <div className="w-full max-w-sm md:max-w-4xl max-h-[60vh] md:max-h-[70vh] rounded-[2rem] md:rounded-[3rem] overflow-hidden border border-white/20 shadow-2xl bg-black/30 flex items-center justify-center">
-                             <img 
-                               src={storySlides[currentStoryIndex].images[0]} 
-                               className="w-full h-full object-contain"
-                               alt="Memória"
-                               referrerPolicy="no-referrer"
-                             />
-                           </div>
-                           <motion.p 
-                             initial={{ opacity: 0 }}
-                             animate={{ opacity: 0.5 }}
-                             transition={{ delay: 0.4 }}
-                             className="mt-6 text-white text-[10px] md:text-xs font-mono tracking-[0.3em] uppercase text-center max-w-xl"
-                           >
-                             {storySlides[currentStoryIndex].message}
-                           </motion.p>
-                        </div>
-                      ) : storySlides[currentStoryIndex]?.type === 'double-image' ? (
-                        /* Type: MIXED - Two images */
-                        <div className="flex flex-col items-center gap-6 w-full h-full px-6">
-                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-5xl justify-items-center">
-                              {storySlides[currentStoryIndex].images.map((img: string, idx: number) => (
-                                <motion.div 
-                                  key={idx}
-                                  initial={{ opacity: 0, scale: 0.9 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  transition={{ delay: 0.1 + idx * 0.1 }}
-                                  className={`rounded-[1.5rem] md:rounded-[2rem] overflow-hidden border border-white/10 shadow-xl bg-black/40 h-56 md:h-80 lg:h-[450px] w-full flex items-center justify-center`}
-                                >
-                                  <img 
-                                    src={img} 
-                                    className="w-full h-full object-contain" 
-                                    referrerPolicy="no-referrer" 
-                                    alt=""
-                                  />
-                                </motion.div>
-                              ))}
-                           </div>
-                           <h4 className="text-white text-lg md:text-3xl font-serif italic text-center drop-shadow-lg max-w-xl leading-relaxed">
-                             {storySlides[currentStoryIndex].message}
-                           </h4>
-                        </div>
-                      ) : (
-                        <div className="text-white text-center">
-                          <p>Nenhuma imagem para exibir ainda.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-8 flex items-center justify-center gap-2 opacity-20">
-                       <span className="text-rose-100 font-mono text-[9px] md:text-[10px] tracking-widest uppercase">
-                         Parte {currentStoryIndex + 1}
-                       </span>
-                    </div>
-                  </motion.div>
-                </AnimatePresence>
+                    <motion.div 
+                      initial={false}
+                      animate={{ 
+                        width: i === currentStoryIndex ? "100%" : i < currentStoryIndex ? "100%" : "0%",
+                        backgroundColor: i <= currentStoryIndex ? "#f43f5e" : "transparent"
+                      }}
+                      transition={{ duration: 0.3 }}
+                      className="h-full"
+                    />
+                  </div>
+                ))}
               </div>
 
-              {/* Progress Bar (at the bottom) */}
-              <div className="w-full max-w-xl flex flex-col items-center pb-8 md:pb-12 relative z-20">
-                <div className="flex justify-between w-full h-1 gap-1 md:gap-2 px-10">
-                   {storySlides.map((_, i) => (
-                     <motion.div 
-                        key={i} 
-                        initial={false}
-                        animate={{ 
-                           backgroundColor: i === currentStoryIndex ? "#f43f5e" : i < currentStoryIndex ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.1)",
-                           scaleY: i === currentStoryIndex ? 2 : 1
-                        }}
-                        className="rounded-full flex-1 h-full"
-                     />
-                   ))}
+              {/* Header Info */}
+              <div className="flex items-center justify-between px-2">
+                <div className="flex items-center gap-3">
+                  <div className="size-10 md:size-12 rounded-full border-2 border-rose-500 p-0.5 overflow-hidden bg-white/10">
+                    <img 
+                      src={images[0]} 
+                      className="w-full h-full object-cover rounded-full" 
+                      referrerPolicy="no-referrer" 
+                      alt=""
+                    />
+                  </div>
+                  <div>
+                    <h5 className="text-white font-serif text-sm md:text-lg leading-none">Diego & Diana</h5>
+                    <p className="text-rose-300 text-[10px] md:text-xs uppercase tracking-widest mt-1">um pouquinho do nosso amor</p>
+                  </div>
                 </div>
+                <button 
+                  onClick={() => {
+                    playSfx('click');
+                    setIsStoryMode(false);
+                    setCurrentStoryIndex(0);
+                  }}
+                  className="text-white/70 hover:text-white transition-colors bg-white/10 p-2 md:p-3 rounded-full backdrop-blur-md border border-white/10"
+                >
+                  <X className="size-6 md:size-7" />
+                </button>
+              </div>
+            </div>
+
+            {/* Main Content Area */}
+            <div 
+              ref={storyContainerRef}
+              className="relative z-10 w-full flex-1 flex flex-col items-center px-2 md:px-4 overflow-hidden pt-4 pb-20 md:pb-24"
+            >
+              {/* Navigation Zones (Floating) */}
+              <div className="absolute inset-x-0 top-0 bottom-32 z-20 flex">
+                <div 
+                  className="w-1/2 h-full cursor-pointer" 
+                  onClick={prevStory} 
+                  aria-label="Anterior"
+                />
+                <div 
+                  className="w-1/2 h-full cursor-pointer" 
+                  onClick={nextStory} 
+                  aria-label="Próximo"
+                />
+              </div>
+
+              {/* Desktop Nav Buttons */}
+              <div className="hidden lg:block">
+                <button 
+                  onClick={prevStory}
+                  disabled={currentStoryIndex === 0}
+                  className="fixed left-8 top-1/2 -translate-y-1/2 p-5 bg-white/5 hover:bg-white/10 rounded-full text-white disabled:opacity-0 transition-all border border-white/5 z-40 backdrop-blur-sm"
+                >
+                  <ChevronLeft size={40} />
+                </button>
+                <button 
+                  onClick={nextStory}
+                  className="fixed right-8 top-1/2 -translate-y-1/2 p-5 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all border border-white/20 z-40 backdrop-blur-md"
+                >
+                  <ChevronRight size={40} />
+                </button>
+              </div>
+
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentStoryIndex}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 1.05 }}
+                  transition={{ duration: 0.4 }}
+                  className="w-full h-full max-w-5xl flex-1 flex flex-col items-center justify-center p-2 md:p-4"
+                >
+                  {/* Layout: TEXT ONLY */}
+                  {storySlides[currentStoryIndex]?.type === 'text' && (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center px-6 -mt-12">
+                      <motion.div
+                        animate={{ scale: [1, 1.1, 1] }}
+                        transition={{ duration: 8, repeat: Infinity }}
+                        className="mb-8 text-rose-500/30"
+                      >
+                        <Heart size={100} className="fill-current w-28 md:w-40 h-auto" />
+                      </motion.div>
+                      <h4 className="text-white text-3xl md:text-5xl lg:text-7xl font-serif italic leading-tight drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)]">
+                        "{storySlides[currentStoryIndex].message}"
+                      </h4>
+                    </div>
+                  )}
+
+                  {/* Layout: SINGLE IMAGE */}
+                  {storySlides[currentStoryIndex]?.type === 'single-image' && (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-6 w-full h-full min-h-0">
+                      <div className="w-full flex-1 min-h-0 flex items-center justify-center p-1 md:p-2">
+                        <div className="rounded-2xl md:rounded-[3rem] overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.7)] border border-white/20 bg-black/30 h-full w-full max-w-4xl flex items-center justify-center">
+                          <img 
+                            src={storySlides[currentStoryIndex].images[0]} 
+                            className="max-w-full max-h-full object-contain"
+                            referrerPolicy="no-referrer"
+                            alt=""
+                          />
+                        </div>
+                      </div>
+                      <div className="px-6 text-center max-w-2xl shrink-0">
+                        <p className="text-white text-xl md:text-3xl font-serif italic drop-shadow-lg leading-snug">
+                          {storySlides[currentStoryIndex].message}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Layout: DOUBLE IMAGE */}
+                  {storySlides[currentStoryIndex]?.type === 'double-image' && (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-6 w-full h-full min-h-0">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 w-full px-4 flex-1 min-h-0 overflow-hidden max-w-6xl">
+                        {storySlides[currentStoryIndex].images.map((img: string, idx: number) => (
+                          <div key={idx} className="h-full flex items-center justify-center min-h-0 p-2">
+                             <img 
+                               src={img} 
+                               className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl shadow-black/40 border border-white/10" 
+                               referrerPolicy="no-referrer" 
+                               alt=""
+                             />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="px-8 text-center max-w-2xl shrink-0">
+                        <p className="text-white text-xl md:text-3xl font-serif italic drop-shadow-md leading-tight">
+                          {storySlides[currentStoryIndex].message}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Layout: TRIPLE IMAGE (Clean Grid) */}
+                  {storySlides[currentStoryIndex]?.type === 'triple-image' && (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-6 w-full h-full min-h-0">
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 w-full px-4 flex-1 min-h-0 overflow-hidden max-w-7xl">
+                         <div className="col-span-2 md:col-span-2 h-full flex items-center justify-center min-h-0 p-1">
+                            <img src={storySlides[currentStoryIndex].images[0]} className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl border border-white/10" referrerPolicy="no-referrer" alt="" />
+                         </div>
+                         <div className="col-span-1 md:col-span-1 flex flex-col gap-4 h-full min-h-0 text-white">
+                            <div className="flex-1 flex items-center justify-center min-h-0">
+                               <img src={storySlides[currentStoryIndex].images[1]} className="max-w-full max-h-full object-contain rounded-xl shadow-xl border border-white/10" referrerPolicy="no-referrer" alt="" />
+                            </div>
+                            <div className="flex-1 flex items-center justify-center min-h-0">
+                               <img src={storySlides[currentStoryIndex].images[2]} className="max-w-full max-h-full object-contain rounded-xl shadow-xl border border-white/10" referrerPolicy="no-referrer" alt="" />
+                            </div>
+                         </div>
+                      </div>
+                      <div className="px-8 text-center max-w-2xl shrink-0">
+                        <p className="text-white text-lg md:text-2xl font-serif italic drop-shadow-md leading-tight">
+                          {storySlides[currentStoryIndex].message}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+
+            {/* Bottom Info Area */}
+            <div className="absolute bottom-0 left-0 right-0 z-[130] w-full flex flex-col items-center gap-2 pb-6 pt-10 md:pb-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-white/40 text-[9px] md:text-xs uppercase tracking-[0.4em] font-mono">Infinitas Memórias</span>
+                <div className="w-1 h-1 bg-rose-500 rounded-full animate-pulse shadow-[0_0_10px_#f43f5e]" />
               </div>
             </div>
           </motion.div>
@@ -798,18 +857,19 @@ export default function App() {
 
       {/* Gallery Section */}
       <section id="galeria" className="max-w-7xl mx-auto px-6 py-32">
-        <div className="text-center mb-24">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-12 mb-24">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0, x: -20 }}
+            whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
+            className="text-left"
           >
             <span className="text-rose-500 font-mono text-sm tracking-[0.5em] uppercase mb-4 block">Álbum de Memórias</span>
-            <h2 className="text-6xl font-serif text-rose-950 tracking-tight">Diego & Diana</h2>
+            <h2 className="text-5xl md:text-7xl font-serif text-rose-950 tracking-tight">Nosso Mural</h2>
             <p className="text-rose-400 mt-4 text-xl font-serif italic">Capítulos de uma vida juntos</p>
-            <div className="h-0.5 w-32 bg-rose-100 mx-auto mt-8 rounded-full" />
-            
-            {/* Hidden File Input */}
+          </motion.div>
+
+          <div className="flex flex-col items-start md:items-end gap-6">
             <input 
               type="file" 
               ref={fileInputRef} 
@@ -817,21 +877,23 @@ export default function App() {
               accept="image/*" 
               className="hidden" 
             />
-            
-            {/* Upload Button */}
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
-              className="mt-12 inline-flex items-center gap-2 bg-rose-100 text-rose-700 px-8 py-3 rounded-full hover:bg-rose-200 transition-colors font-medium border border-rose-200 shadow-sm disabled:opacity-50"
+              className="group flex items-center gap-4 bg-rose-600 text-white px-10 py-5 rounded-full hover:bg-rose-700 transition-all shadow-xl shadow-rose-950/20 disabled:opacity-50"
             >
-              <div className={isUploading ? "animate-spin" : ""}>
-                {isUploading ? <Loader2 size={18} /> : <Camera size={18} />}
-              </div>
-              {isUploading ? "Enviando..." : "Adicionar Foto Especial"}
+              {isUploading ? (
+                <Loader2 size={24} className="animate-spin" />
+              ) : (
+                <Camera size={24} className="group-hover:scale-110 transition-transform" />
+              )}
+              <span className="font-medium tracking-tight">
+                {isUploading ? "Eternizando..." : "Anexar Nova Memória"}
+              </span>
             </motion.button>
-          </motion.div>
+          </div>
         </div>
 
         <div className="columns-1 sm:columns-2 lg:columns-3 gap-10 space-y-10">
