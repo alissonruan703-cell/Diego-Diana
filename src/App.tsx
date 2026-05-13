@@ -113,14 +113,12 @@ export default function App() {
   const fetchImages = async () => {
     try {
       const response = await fetch('/api/images');
-      const text = await response.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        console.error("Failed to parse JSON response", text);
-        throw new Error("Resposta do servidor inválida");
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`API Error: ${response.status} - ${text.substring(0, 100)}`);
+        throw new Error(`Servidor retornou ${response.status}`);
       }
+      const data = await response.json();
       
       if (data.error) {
         setError(data.error);
@@ -331,8 +329,8 @@ export default function App() {
         src="https://1zeobazjs4hzhzb8.public.blob.vercel-storage.com/YTDown_YouTube_Lady-Gaga-Bruno-Mars-Die-With-A-Smile-Of_Media_kPa7bsKwL-c_009_128k.mp3" 
       />
       <canvas id="story-confetti" className="fixed inset-0 pointer-events-none z-[1000]" />
-      <audio ref={clickSfx} src="https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3" />
-      <audio ref={popSfx} src="https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3" />
+      <audio ref={clickSfx} src="https://www.soundjay.com/buttons/sounds/button-16.mp3" />
+      <audio ref={popSfx} src="https://www.soundjay.com/buttons/sounds/button-19.mp3" />
 
       {/* Animated Handwriting Illustration (Sketchy Style) */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">

@@ -1,3 +1,5 @@
+console.log("[SERVER] Global entry point hit");
+
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -15,10 +17,13 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Logging middleware
   app.use((req, res, next) => {
-    console.log(`${req.method} ${req.url}`);
+    console.log(`[SERVER] ${req.method} ${req.url}`);
     next();
+  });
+
+  app.get("/api/test", (req, res) => {
+    res.json({ message: "API is working", time: new Date().toISOString() });
   });
 
   // Health check
@@ -28,6 +33,7 @@ async function startServer() {
 
   // API Route to list blobs
   app.get("/api/images", async (req, res) => {
+    console.log("[SERVER] Received request for /api/images");
     try {
       const token = process.env.BLOB_READ_WRITE_TOKEN;
       if (!token) {
